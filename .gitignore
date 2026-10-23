@@ -26,3 +26,7 @@ dist-ssr
 # Environment credentials
 .env
 .env.production
+
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
