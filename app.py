@@ -35,11 +35,14 @@ st.markdown("""
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
-# Try reading from streamlit secrets if available
-if not SUPABASE_URL and hasattr(st, "secrets") and "SUPABASE_URL" in st.secrets:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-if not SUPABASE_KEY and hasattr(st, "secrets") and "SUPABASE_KEY" in st.secrets:
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+# Try reading from streamlit secrets safely
+try:
+    if not SUPABASE_URL and hasattr(st, "secrets") and "SUPABASE_URL" in st.secrets:
+        SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    if not SUPABASE_KEY and hasattr(st, "secrets") and "SUPABASE_KEY" in st.secrets:
+        SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+except Exception:
+    pass
 
 supabase_client = None
 if SUPABASE_URL and SUPABASE_KEY:
