@@ -19,6 +19,18 @@ const STORAGE_KEY_REPORTS = 'raasta_reports_v1';
 const STORAGE_KEY_HISTORY = 'raasta_history_v1';
 const STORAGE_KEY_CONFIRMATIONS = 'raasta_confirmations_v1';
 
+// Helper to identify PostgREST schema cache / missing table errors (PGRST204)
+function isSchemaCacheError(err: any): boolean {
+  if (!err) return false;
+  const msg = typeof err === 'string' ? err : err.message || '';
+  const code = err.code || '';
+  return (
+    code === 'PGRST204' ||
+    msg.toLowerCase().includes('schema cache') ||
+    msg.toLowerCase().includes('could not find the table')
+  );
+}
+
 // Seed sample civic issues if storage is completely empty
 const SEED_REPORTS: Report[] = [
   {
@@ -145,6 +157,57 @@ export function generateReference(): string {
   return `RST-${dateStr}-${rand}`;
 }
 
+// Check live connection & schema cache state
+export async function getBackendConnectionStatus(): Promise<{
+  mode: 'supabase' | 'offline_fallback';
+  connected: boolean;
+  tableVerified: boolean;
+  message: string;
+}> {
+  if (!isSupabaseConfigured || !supabase) {
+    return {
+      mode: 'offline_fallback',
+      connected: false,
+      tableVerified: false,
+      message: 'Running in local offline-first mode (VITE_SUPABASE_URL not configured).',
+    };
+  }
+
+  try {
+    const { error } = await supabase.from('reports').select('id', { count: 'exact', head: true });
+    if (error) {
+      if (isSchemaCacheError(error)) {
+        return {
+          mode: 'offline_fallback',
+          connected: true,
+          tableVerified: false,
+          message:
+            "Supabase cloud connected, but table 'public.reports' is missing from schema cache. Execute supabase/migrations/001_core_report_and_history.sql in the Supabase SQL Editor.",
+        };
+      }
+      return {
+        mode: 'offline_fallback',
+        connected: false,
+        tableVerified: false,
+        message: `Supabase error: ${error.message}`,
+      };
+    }
+    return {
+      mode: 'supabase',
+      connected: true,
+      tableVerified: true,
+      message: "Supabase cloud connected and 'public.reports' table verified.",
+    };
+  } catch (err: any) {
+    return {
+      mode: 'offline_fallback',
+      connected: false,
+      tableVerified: false,
+      message: err.message || 'Supabase connection failed.',
+    };
+  }
+}
+
 // Helper: load storage
 function loadLocalStorage<T>(key: string, fallback: T): T {
   try {
@@ -212,20 +275,26 @@ export async function createReport(
         .single();
 
       if (error) {
-        console.error('Supabase createReport error:', error);
-        return { report: {} as Report, error: error.message };
+        if (isSchemaCacheError(error)) {
+          console.warn(
+            "[Supabase Schema Cache Alert] Table 'public.reports' not found in cloud project. Run supabase/migrations/001_core_report_and_history.sql in Supabase SQL Editor. Falling back to persistent storage."
+          );
+        } else {
+          console.error('Supabase createReport error:', error);
+          return { report: {} as Report, error: error.message };
+        }
+      } else if (data) {
+        // Record initial status history
+        await supabase.from('report_status_history').insert({
+          report_id: data.id,
+          old_status: null,
+          new_status: 'Reported',
+          changed_by: creatorUserId ?? null,
+          message: 'Report submitted by citizen',
+        });
+
+        return { report: data as Report };
       }
-
-      // History is logged via trigger on DB, but if trigger is missing, insert directly
-      await supabase.from('report_status_history').insert({
-        report_id: data.id,
-        old_status: null,
-        new_status: 'Reported',
-        changed_by: creatorUserId ?? null,
-        message: 'Report submitted by citizen',
-      });
-
-      return { report: data as Report };
     } catch (err: any) {
       console.warn('Falling back to local storage due to Supabase error:', err);
     }
@@ -296,11 +365,17 @@ export async function getReports(
 
       const { data, error } = await query;
       if (error) {
-        console.error('Supabase getReports error:', error);
-        return { reports: [], error: error.message };
+        if (isSchemaCacheError(error)) {
+          console.warn(
+            "[Supabase Schema Cache Alert] Table 'public.reports' not found in schema cache. Execute migration SQL in Supabase dashboard. Falling back to local storage."
+          );
+        } else {
+          console.error('Supabase getReports error:', error);
+          return { reports: [], error: error.message };
+        }
+      } else if (data) {
+        return { reports: data as Report[] };
       }
-
-      return { reports: (data || []) as Report[] };
     } catch (err: any) {
       console.warn('Falling back to local storage for getReports:', err);
     }
@@ -368,20 +443,22 @@ export async function getReportByReference(
         .eq('reference', cleanRef)
         .single();
 
-      if (reportError || !reportData) {
-        return { history: [], error: 'Report not found with reference: ' + cleanRef };
+      if (reportError) {
+        if (!isSchemaCacheError(reportError)) {
+          return { history: [], error: 'Report not found with reference: ' + cleanRef };
+        }
+      } else if (reportData) {
+        const { data: histData } = await supabase
+          .from('report_status_history')
+          .select('*')
+          .eq('report_id', reportData.id)
+          .order('created_at', { ascending: true });
+
+        return {
+          report: reportData as Report,
+          history: (histData || []) as ReportStatusHistory[],
+        };
       }
-
-      const { data: histData } = await supabase
-        .from('report_status_history')
-        .select('*')
-        .eq('report_id', reportData.id)
-        .order('created_at', { ascending: true });
-
-      return {
-        report: reportData as Report,
-        history: (histData || []) as ReportStatusHistory[],
-      };
     } catch (err: any) {
       console.warn('Falling back to local storage for getReportByReference:', err);
     }
@@ -432,37 +509,35 @@ export async function updateReportStatus(
         .eq('id', reportId)
         .single();
 
-      if (fetchErr || !currentReport) {
-        return { success: false, error: 'Report not found' };
+      if (!fetchErr && currentReport) {
+        const oldStatus = currentReport.status as ReportStatus;
+
+        // 2. Update status
+        const { data: updatedData, error: updateErr } = await supabase
+          .from('reports')
+          .update({
+            status: newStatus,
+            updated_at: now,
+          })
+          .eq('id', reportId)
+          .select()
+          .single();
+
+        if (updateErr) {
+          return { success: false, error: updateErr.message };
+        }
+
+        // 3. Record status history entry
+        await supabase.from('report_status_history').insert({
+          report_id: reportId,
+          old_status: oldStatus,
+          new_status: newStatus,
+          changed_by: moderatorId || 'moderator',
+          message: message?.trim() || `Status updated from ${oldStatus} to ${newStatus}`,
+        });
+
+        return { success: true, updatedReport: updatedData as Report };
       }
-
-      const oldStatus = currentReport.status as ReportStatus;
-
-      // 2. Update status
-      const { data: updatedData, error: updateErr } = await supabase
-        .from('reports')
-        .update({
-          status: newStatus,
-          updated_at: now,
-        })
-        .eq('id', reportId)
-        .select()
-        .single();
-
-      if (updateErr) {
-        return { success: false, error: updateErr.message };
-      }
-
-      // 3. Record status history entry
-      await supabase.from('report_status_history').insert({
-        report_id: reportId,
-        old_status: oldStatus,
-        new_status: newStatus,
-        changed_by: moderatorId || 'moderator',
-        message: message?.trim() || `Status updated from ${oldStatus} to ${newStatus}`,
-      });
-
-      return { success: true, updatedReport: updatedData as Report };
     } catch (err: any) {
       console.warn('Falling back to local storage for updateReportStatus:', err);
     }
@@ -515,33 +590,32 @@ export async function toggleConfirmation(
   // Mode A: Live Supabase
   if (isSupabaseConfigured && supabase) {
     try {
-      // Check existing
-      const { data: existing } = await supabase
+      const { data: existing, error: checkErr } = await supabase
         .from('report_confirmations')
         .select('id')
         .eq('report_id', reportId)
         .eq('user_id', userId)
         .maybeSingle();
 
-      if (existing) {
-        // Remove confirmation
-        await supabase.from('report_confirmations').delete().eq('id', existing.id);
-        const { count } = await supabase
-          .from('report_confirmations')
-          .select('*', { count: 'exact', head: true })
-          .eq('report_id', reportId);
-        return { confirmed: false, newCount: count || 0 };
-      } else {
-        // Add confirmation
-        await supabase.from('report_confirmations').insert({
-          report_id: reportId,
-          user_id: userId,
-        });
-        const { count } = await supabase
-          .from('report_confirmations')
-          .select('*', { count: 'exact', head: true })
-          .eq('report_id', reportId);
-        return { confirmed: true, newCount: count || 1 };
+      if (!checkErr) {
+        if (existing) {
+          await supabase.from('report_confirmations').delete().eq('id', existing.id);
+          const { count } = await supabase
+            .from('report_confirmations')
+            .select('*', { count: 'exact', head: true })
+            .eq('report_id', reportId);
+          return { confirmed: false, newCount: count || 0 };
+        } else {
+          await supabase.from('report_confirmations').insert({
+            report_id: reportId,
+            user_id: userId,
+          });
+          const { count } = await supabase
+            .from('report_confirmations')
+            .select('*', { count: 'exact', head: true })
+            .eq('report_id', reportId);
+          return { confirmed: true, newCount: count || 1 };
+        }
       }
     } catch (err: any) {
       console.warn('Falling back to local storage for toggleConfirmation:', err);
