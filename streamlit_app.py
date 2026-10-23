@@ -12,31 +12,48 @@ st.set_page_config(
 # Custom CSS to make Streamlit a full-bleed container with zero margin/padding
 st.markdown("""
 <style>
-    #MainMenu {visibility: hidden !important;}
-    footer {visibility: hidden !important;}
-    header {visibility: hidden !important;}
-    .stAppDeployButton {display:none !important;}
-    div[data-testid="stToolbar"] {visibility: hidden !important;}
-    div[data-testid="stDecoration"] {visibility: hidden !important;}
-    div[data-testid="stStatusWidget"] {visibility: hidden !important;}
+    /* Completely hide Streamlit UI Chrome */
+    #MainMenu, footer, header, .stAppDeployButton { display: none !important; }
+    div[data-testid="stToolbar"] { display: none !important; }
+    div[data-testid="stDecoration"] { display: none !important; }
+    div[data-testid="stStatusWidget"] { display: none !important; }
+    div[data-testid="stHeader"] { display: none !important; }
     
-    .stApp {
+    /* Reset all outer page constraints */
+    html, body, .stApp, .main, [data-testid="stAppViewContainer"], section.main {
         background: #FAF8F2 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        overflow: hidden !important;
     }
 
     .main .block-container {
-        padding-top: 0rem !important;
-        padding-bottom: 0rem !important;
-        padding-left: 0rem !important;
-        padding-right: 0rem !important;
-        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        max-width: 100vw !important;
+        width: 100vw !important;
+        height: 100vh !important;
     }
 
-    iframe {
-        width: 100% !important;
+    div[data-testid="stVerticalBlock"] {
+        gap: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Fixed 100vw x 100vh iframe fills the entire browser window */
+    div[data-testid="stCustomComponentV1"], div[data-testid="stCustomComponentV1"] > iframe {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
         height: 100vh !important;
-        min-height: 1050px !important;
         border: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        z-index: 999999 !important;
     }
 </style>
 """, unsafe_allow_html=True)
