@@ -23,9 +23,10 @@ with open(css_file, "r", encoding="utf-8") as f:
     css_content = f.read()
 
 # Replace <link rel="stylesheet"...> with <style>...</style>
+reset_style = "<style>html, body { margin: 0 !important; padding: 0 !important; width: 100% !important; min-height: 100vh !important; background: #90C8DD !important; }</style>"
 content = re.sub(
     r'<link rel="stylesheet"[^>]*href="/assets/[^"]+\.css"[^>]*>',
-    lambda m: f'<style>{css_content}</style>',
+    lambda m: f'{reset_style}\n<style>{css_content}</style>',
     content
 )
 

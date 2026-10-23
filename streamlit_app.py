@@ -12,48 +12,60 @@ st.set_page_config(
 # Custom CSS to make Streamlit a full-bleed container with zero margin/padding
 st.markdown("""
 <style>
-    /* Completely hide Streamlit UI Chrome */
+    /* 1. Hide Streamlit Chrome */
     #MainMenu, footer, header, .stAppDeployButton { display: none !important; }
     div[data-testid="stToolbar"] { display: none !important; }
     div[data-testid="stDecoration"] { display: none !important; }
     div[data-testid="stStatusWidget"] { display: none !important; }
-    div[data-testid="stHeader"] { display: none !important; }
+    header[data-testid="stHeader"] { display: none !important; }
     
-    /* Reset all outer page constraints */
-    html, body, .stApp, .main, [data-testid="stAppViewContainer"], section.main {
-        background: #FAF8F2 !important;
+    /* 2. Color entire Streamlit canvas with matching sky blue */
+    html, body, .stApp, [data-testid="stAppViewContainer"], section.main, .main {
+        background: #90C8DD !important;
         margin: 0 !important;
         padding: 0 !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        overflow: hidden !important;
+        width: 100% !important;
+        overflow-x: hidden !important;
     }
 
-    .main .block-container {
-        padding: 0 !important;
+    /* 3. Strip all padding from the main block container */
+    .main .block-container, div[data-testid="stMainBlockContainer"], section[data-testid="stMain"] > div {
+        padding-top: 0rem !important;
+        padding-bottom: 0rem !important;
+        padding-left: 0rem !important;
+        padding-right: 0rem !important;
         margin: 0 !important;
         max-width: 100vw !important;
         width: 100vw !important;
-        height: 100vh !important;
     }
 
-    div[data-testid="stVerticalBlock"] {
+    div[data-testid="stVerticalBlock"], div[data-testid="stVerticalBlockBorderWrapper"] {
         gap: 0 !important;
         padding: 0 !important;
         margin: 0 !important;
     }
 
-    /* Fixed 100vw x 100vh iframe fills the entire browser window */
-    div[data-testid="stCustomComponentV1"], div[data-testid="stCustomComponentV1"] > iframe {
-        position: fixed !important;
-        top: 0 !important;
-        left: 0 !important;
+    /* 4. Full 100vw breakout eliminates any side gutters */
+    div[data-testid="stCustomComponentV1"], div.stCustomComponentV1 {
+        width: 100vw !important;
+        position: relative !important;
+        left: 50% !important;
+        right: 50% !important;
+        margin-left: -50vw !important;
+        margin-right: -50vw !important;
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        padding: 0 !important;
+    }
+
+    div[data-testid="stCustomComponentV1"] iframe, div.stCustomComponentV1 iframe {
         width: 100vw !important;
         height: 100vh !important;
+        min-height: 100vh !important;
         border: none !important;
+        display: block !important;
         margin: 0 !important;
         padding: 0 !important;
-        z-index: 999999 !important;
     }
 </style>
 """, unsafe_allow_html=True)
