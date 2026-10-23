@@ -3,59 +3,38 @@ import { ReportStatus } from '../types/raasta';
 
 interface StatusBadgeProps {
   status: ReportStatus;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md';
 }
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, size = 'md' }) => {
-  const getColors = () => {
+  const getStyle = () => {
     switch (status) {
-      case 'Reported':
-        return 'bg-stone-100 text-stone-700 border-stone-300';
-      case 'Under Review':
-        return 'bg-amber-50 text-amber-800 border-amber-300';
       case 'In Progress':
-        return 'bg-sky-50 text-sky-800 border-sky-300';
+        return 'text-[#7C3AED] border-[#A78BFA] bg-[#FAF5FF]/70';
+      case 'Under Review':
+        return 'text-[#2563EB] border-[#60A5FA] bg-[#EFF6FF]/70';
       case 'Resolved':
-        return 'bg-emerald-50 text-emerald-800 border-emerald-300';
+        return 'text-[#166534] border-[#4ADE80] bg-[#F0FDF4]/70';
+      case 'Reported':
+        return 'text-[#D97706] border-[#FBBF24] bg-[#FFFBEB]/70';
       case 'Rejected':
-        return 'bg-rose-50 text-rose-800 border-rose-300';
+        return 'text-[#4B5563] border-[#9CA3AF] bg-[#F9FAFB]/70';
       case 'Duplicate':
-        return 'bg-purple-50 text-purple-800 border-purple-300';
+        return 'text-[#DC2626] border-[#F87171] bg-[#FEF2F2]/70';
       default:
-        return 'bg-gray-100 text-gray-700 border-gray-300';
+        return 'text-[#4B5563] border-[#9CA3AF] bg-white';
     }
   };
 
-  const getDotColor = () => {
-    switch (status) {
-      case 'Reported':
-        return 'bg-stone-400';
-      case 'Under Review':
-        return 'bg-amber-500 animate-pulse';
-      case 'In Progress':
-        return 'bg-sky-500';
-      case 'Resolved':
-        return 'bg-emerald-600';
-      case 'Rejected':
-        return 'bg-rose-500';
-      case 'Duplicate':
-        return 'bg-purple-500';
-      default:
-        return 'bg-gray-400';
-    }
-  };
-
-  const sizeClasses = {
-    sm: 'text-xs px-2 py-0.5',
-    md: 'text-xs px-2.5 py-1',
-    lg: 'text-sm px-3 py-1.5 font-medium',
-  };
+  const sizeClasses =
+    size === 'sm'
+      ? 'px-2.5 py-0.5 text-[11px] font-medium'
+      : 'px-3.5 py-0.5 text-xs font-medium';
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border font-medium ${getColors()} ${sizeClasses[size]}`}
+      className={`inline-flex items-center justify-center rounded-full border leading-tight ${getStyle()} ${sizeClasses}`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${getDotColor()}`}></span>
       {status}
     </span>
   );

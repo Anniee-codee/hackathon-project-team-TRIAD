@@ -4,22 +4,26 @@
 // ==============================================================================
 
 export type IssueCategory =
+  | 'Roads & potholes'
+  | 'Drainage & sewage'
+  | 'Garbage'
+  | 'Streetlights'
+  | 'Water supply'
+  | 'Other infrastructure'
   | 'Roads & Potholes'
   | 'Water & Sewage'
   | 'Electricity'
   | 'Garbage & Sanitation'
-  | 'Streetlights'
   | 'Public Safety'
   | 'Other';
 
 export const ISSUE_CATEGORIES: IssueCategory[] = [
-  'Roads & Potholes',
-  'Water & Sewage',
-  'Electricity',
-  'Garbage & Sanitation',
+  'Roads & potholes',
+  'Drainage & sewage',
+  'Garbage',
   'Streetlights',
-  'Public Safety',
-  'Other'
+  'Water supply',
+  'Other infrastructure',
 ];
 
 export type ReportStatus =

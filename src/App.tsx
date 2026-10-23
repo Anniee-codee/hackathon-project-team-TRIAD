@@ -1,140 +1,232 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
+import { LandingPage } from './components/LandingPage';
+import { IssueMapExplorer } from './components/IssueMapExplorer';
 import { ReportForm } from './components/ReportForm';
-import { ReportExplorer } from './components/ReportExplorer';
-import { ReportDetails } from './components/ReportDetails';
 import { ModeratorDashboard } from './components/ModeratorDashboard';
-import { Report } from './types/raasta';
-import { getBackendConnectionStatus } from './services/reports';
-import { isSupabaseConfigured } from './lib/supabase';
-import { Database, AlertTriangle, CheckCircle, Server } from 'lucide-react';
+import { ReportDetails } from './components/ReportDetails';
+import { Footer } from './components/Footer';
+import { Report, ReportStatus, ReportStatusHistory } from './types/raasta';
+import { INITIAL_REPORTS, INITIAL_STATUS_HISTORY } from './data/mockReports';
+
+const STORAGE_REPORTS_KEY = 'raasta_frontend_reports_v2';
+const STORAGE_HISTORY_KEY = 'raasta_frontend_history_v2';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'report' | 'explore' | 'details' | 'moderator'>('explore');
-  const [selectedReference, setSelectedReference] = useState<string | null>(null);
-  const [isModerator, setIsModerator] = useState<boolean>(() => {
-    return localStorage.getItem('raasta_moderator_auth') === 'true';
+  const [activeTab, setActiveTab] = useState<'home' | 'map' | 'report' | 'moderator' | 'details'>('home');
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+  const [filterCategory, setFilterCategory] = useState<string>('All categories');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Persistent reports state
+  const [reports, setReports] = useState<Report[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_REPORTS_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Error loading reports from localStorage', e);
+    }
+    return INITIAL_REPORTS;
   });
 
-  const [dbStatus, setDbStatus] = useState<{
-    mode: 'supabase' | 'offline_fallback';
-    connected: boolean;
-    tableVerified: boolean;
-    message: string;
-  } | null>(null);
+  // Persistent history state
+  const [statusHistory, setStatusHistory] = useState<Record<string, ReportStatusHistory[]>>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_HISTORY_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error('Error loading history from localStorage', e);
+    }
+    return INITIAL_STATUS_HISTORY;
+  });
+
+  // Save to localStorage on change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_REPORTS_KEY, JSON.stringify(reports));
+    } catch (e) {
+      console.error('Failed to save reports', e);
+    }
+  }, [reports]);
 
   useEffect(() => {
-    getBackendConnectionStatus().then(setDbStatus);
-  }, []);
+    try {
+      localStorage.setItem(STORAGE_HISTORY_KEY, JSON.stringify(statusHistory));
+    } catch (e) {
+      console.error('Failed to save status history', e);
+    }
+  }, [statusHistory]);
 
-  const handleSelectReport = (report: Report) => {
-    setSelectedReference(report.reference);
-    setActiveTab('details');
+  // Handle report creation
+  const handleReportCreated = (newReport: Report) => {
+    const updated = [newReport, ...reports];
+    setReports(updated);
+
+    const initialHistoryEntry: ReportStatusHistory = {
+      id: `h-${Date.now()}`,
+      report_id: newReport.id,
+      old_status: null,
+      new_status: 'Reported',
+      changed_by: 'citizen',
+      message: 'Report filed and submitted to community map.',
+      created_at: new Date().toISOString(),
+    };
+
+    setStatusHistory((prev) => ({
+      ...prev,
+      [newReport.id]: [initialHistoryEntry],
+    }));
   };
 
-  const handleReportCreated = (report: Report) => {
-    setSelectedReference(report.reference);
+  // Handle moderator status update
+  const handleUpdateStatus = (reportId: string, newStatus: ReportStatus, note: string) => {
+    setReports((prev) =>
+      prev.map((r) => {
+        if (r.id === reportId) {
+          return {
+            ...r,
+            status: newStatus,
+            updated_at: new Date().toISOString(),
+          };
+        }
+        return r;
+      })
+    );
+
+    const historyEntry: ReportStatusHistory = {
+      id: `h-${Date.now()}`,
+      report_id: reportId,
+      old_status: reports.find((r) => r.id === reportId)?.status || null,
+      new_status: newStatus,
+      changed_by: 'moderator',
+      message: note || `Status updated to ${newStatus}`,
+      created_at: new Date().toISOString(),
+    };
+
+    setStatusHistory((prev) => ({
+      ...prev,
+      [reportId]: [...(prev[reportId] || []), historyEntry],
+    }));
+
+    if (selectedReport && selectedReport.id === reportId) {
+      setSelectedReport((prev) =>
+        prev ? { ...prev, status: newStatus, updated_at: new Date().toISOString() } : null
+      );
+    }
+  };
+
+  // Handle community pulse confirmation
+  const handleConfirmIssue = (reportId: string) => {
+    setReports((prev) =>
+      prev.map((r) => {
+        if (r.id === reportId) {
+          const wasConfirmed = !!r.has_confirmed;
+          const currentCount = r.confirmations_count || 0;
+          return {
+            ...r,
+            has_confirmed: !wasConfirmed,
+            confirmations_count: wasConfirmed ? Math.max(0, currentCount - 1) : currentCount + 1,
+          };
+        }
+        return r;
+      })
+    );
+
+    if (selectedReport && selectedReport.id === reportId) {
+      setSelectedReport((prev) => {
+        if (!prev) return null;
+        const wasConfirmed = !!prev.has_confirmed;
+        const currentCount = prev.confirmations_count || 0;
+        return {
+          ...prev,
+          has_confirmed: !wasConfirmed,
+          confirmations_count: wasConfirmed ? Math.max(0, currentCount - 1) : currentCount + 1,
+        };
+      });
+    }
+  };
+
+  // Navigation helper
+  const handleNavigate = (
+    tab: 'home' | 'map' | 'report' | 'moderator',
+    category?: string,
+    search?: string
+  ) => {
+    setActiveTab(tab);
+    if (category) setFilterCategory(category);
+    if (search !== undefined) setSearchQuery(search);
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-ivory-100 text-charcoal-900">
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-[#90C8DD] via-[#D5ECF5] to-[#FAF8F3] text-[#1F2421]">
+      {/* Top Navbar */}
       <Navbar
-        activeTab={activeTab === 'details' ? 'explore' : activeTab}
+        activeTab={activeTab}
         setActiveTab={(tab) => {
           setActiveTab(tab);
-          setSelectedReference(null);
+          if (tab !== 'map') {
+            setFilterCategory('All categories');
+            setSearchQuery('');
+          }
         }}
-        isModerator={isModerator}
-        setIsModerator={setIsModerator}
       />
 
-      {/* Schema Cache Alert Banner if Supabase URL is set but migration SQL is pending */}
-      {isSupabaseConfigured && dbStatus && !dbStatus.tableVerified && (
-        <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2 text-xs text-amber-900">
-          <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-              <span>
-                <strong>Supabase Schema Cache Alert:</strong> Table <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold">public.reports</code> not found in Supabase project.
-              </span>
-            </div>
-            <span className="text-[11px] text-amber-800">
-              Run <code className="bg-amber-100 px-1 py-0.5 rounded font-mono">supabase/migrations/001_core_report_and_history.sql</code> in the Supabase SQL Editor to activate cloud persistence.
-            </span>
-          </div>
-        </div>
-      )}
-
+      {/* Main Pages */}
       <main className="flex-1">
-        {activeTab === 'explore' && (
-          <ReportExplorer
-            onSelectReport={handleSelectReport}
-            onNavigateToCreate={() => setActiveTab('report')}
+        {activeTab === 'home' && (
+          <LandingPage
+            reports={reports}
+            onNavigate={handleNavigate}
+            onSelectReport={(r) => {
+              setSelectedReport(r);
+              setActiveTab('details');
+            }}
+          />
+        )}
+
+        {activeTab === 'map' && (
+          <IssueMapExplorer
+            reports={reports}
+            initialCategory={filterCategory}
+            initialSearch={searchQuery}
+            onSelectReport={(r) => {
+              setSelectedReport(r);
+              setActiveTab('details');
+            }}
+            onConfirmIssue={handleConfirmIssue}
           />
         )}
 
         {activeTab === 'report' && (
           <ReportForm
             onReportCreated={handleReportCreated}
-            onNavigateToExplorer={() => {
-              if (selectedReference) {
-                setActiveTab('details');
-              } else {
-                setActiveTab('explore');
-              }
-            }}
-          />
-        )}
-
-        {activeTab === 'details' && selectedReference && (
-          <ReportDetails
-            reference={selectedReference}
-            onBack={() => {
-              setSelectedReference(null);
-              setActiveTab('explore');
-            }}
+            onNavigateToMap={() => setActiveTab('map')}
           />
         )}
 
         {activeTab === 'moderator' && (
           <ModeratorDashboard
-            onSelectReport={handleSelectReport}
+            reports={reports}
+            onUpdateStatus={handleUpdateStatus}
+            onOpenPublicPage={(r) => {
+              setSelectedReport(r);
+              setActiveTab('details');
+            }}
+          />
+        )}
+
+        {activeTab === 'details' && selectedReport && (
+          <ReportDetails
+            report={reports.find((r) => r.id === selectedReport.id) || selectedReport}
+            history={statusHistory[selectedReport.id] || []}
+            onBack={() => setActiveTab('map')}
+            onConfirmIssue={handleConfirmIssue}
           />
         )}
       </main>
 
-      {/* Civic Footer with Backend-Core Status Indicator */}
-      <footer className="border-t border-ivory-300 bg-ivory-50 py-5 text-xs text-charcoal-800/60 mt-auto">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-forest-800">Raasta Civic Platform</span>
-            <span>•</span>
-            <span>Team TRIAD Hackathon MVP</span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4 text-[11px]">
-            <span>Branch: <code className="font-mono bg-ivory-200 px-1.5 py-0.5 rounded font-bold text-forest-800">backend-core</code></span>
-
-            {/* Dynamic Database Status */}
-            {dbStatus?.tableVerified ? (
-              <span className="inline-flex items-center gap-1.5 text-emerald-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                <CheckCircle className="w-3 h-3 text-emerald-600" />
-                <span>Supabase Cloud Connected</span>
-              </span>
-            ) : isSupabaseConfigured ? (
-              <span className="inline-flex items-center gap-1.5 text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200" title={dbStatus?.message}>
-                <Database className="w-3 h-3 text-amber-600" />
-                <span>Supabase Table Pending (Run SQL)</span>
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 text-charcoal-800/70 font-medium bg-ivory-200 px-2 py-0.5 rounded-full">
-                <Server className="w-3 h-3 text-charcoal-800/50" />
-                <span>Offline-First Storage Active</span>
-              </span>
-            )}
-          </div>
-        </div>
-      </footer>
+      {/* Footer */}
+      <Footer />
     </div>
   );
 };
